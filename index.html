@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>ВЫЖИВШИЙ — 3 ночи</title>
+<style>
+  :root{
+    --bone:#e7e2d2;
+    --blood:#9a2323;
+    --blood-bright:#d43a3a;
+    --lantern:#d8c887;
+    --void:#050403;
+    --panel:#0d0b09;
+    --panel-border:#2a221a;
+  }
+  html,body{margin:0;padding:0;background:#000;overflow:hidden;height:100%;width:100%;}
+  body{font-family:Georgia,'Times New Roman',serif;color:var(--bone);}
+  #game{display:block;background:#000;cursor:crosshair;}
+
+  .overlay{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at center, rgba(10,8,6,0.92) 0%, rgba(2,1,1,0.98) 100%);
+    z-index:50;
+  }
+  .hidden{display:none !important;}
+  .panel{
+    max-width:560px;width:88%;padding:36px 40px;border:1px solid var(--panel-border);
+    background:linear-gradient(180deg, rgba(20,15,11,0.9), rgba(8,6,4,0.95));
+    box-shadow:0 0 60px rgba(0,0,0,0.8), inset 0 0 40px rgba(0,0,0,0.5);
+    text-align:center;
+  }
+  .panel h1{
+    font-size:2.4em;letter-spacing:4px;margin:0 0 6px 0;color:var(--blood-bright);
+    text-shadow:0 0 18px rgba(212,58,58,0.5);font-weight:normal;
+  }
+  .panel h2{font-size:1.3em;color:var(--lantern);margin:0 0 20px 0;font-weight:normal;font-style:italic;}
+  .panel p{line-height:1.6;font-size:0.98em;color:#c9c3b3;text-align:left;margin:10px 0;}
+  .panel ul{text-align:left;line-height:1.9;color:#c9c3b3;font-size:0.95em;padding-left:20px;}
+  .panel .tag{color:var(--lantern);}
+  .btn{
+    margin-top:18px;padding:13px 34px;font-size:1.05em;letter-spacing:2px;
+    background:var(--blood);color:var(--bone);border:1px solid #c94b4b;cursor:pointer;
+    font-family:Georgia,serif;transition:background .15s, box-shadow .15s;
+  }
+  .btn:hover{background:var(--blood-bright);box-shadow:0 0 20px rgba(212,58,58,0.5);}
+
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:10;font-family:'Courier New',monospace;}
+  #stats{position:absolute;top:16px;left:16px;width:230px;}
+  .stat{margin-bottom:8px;}
+  .stat .label{font-size:0.72em;letter-spacing:1px;color:#a89f8c;display:flex;justify-content:space-between;margin-bottom:2px;}
+  .barBg{height:12px;background:rgba(0,0,0,0.55);border:1px solid var(--panel-border);position:relative;}
+  .barFill{height:100%;transition:width .2s linear;}
+  .fillHealth{background:linear-gradient(90deg,#5c1010,var(--blood-bright));}
+  .fillHunger{background:linear-gradient(90deg,#5a3a10,#c98a2e);}
+  .fillBattery{background:linear-gradient(90deg,#5a5216,var(--lantern));}
+
+  #dayLabel{
+    position:absolute;top:16px;right:16px;text-align:right;font-family:Georgia,serif;
+  }
+  #dayLabel .big{font-size:1.4em;color:var(--lantern);letter-spacing:2px;text-shadow:0 0 10px rgba(0,0,0,0.8);}
+  #phaseBarBg{width:180px;height:6px;background:rgba(0,0,0,0.5);border:1px solid var(--panel-border);margin-top:6px;margin-left:auto;}
+  #phaseBarFill{height:100%;background:var(--lantern);width:0%;}
+
+  #logbox{position:absolute;bottom:18px;left:16px;width:420px;display:flex;flex-direction:column-reverse;gap:4px;}
+  .logline{
+    font-family:Georgia,serif;font-style:italic;font-size:0.92em;color:#d8d2c0;
+    background:rgba(0,0,0,0.35);padding:4px 10px;border-left:2px solid var(--blood);
+    opacity:1;transition:opacity 1.4s ease;
+  }
+  .logline.fade{opacity:0;}
+
+  #controls{position:absolute;bottom:16px;right:16px;font-size:0.75em;color:#8a8272;text-align:right;line-height:1.6;}
+  #controls b{color:var(--lantern);}
+
+  #flashIcon{position:absolute;bottom:100px;right:16px;font-size:0.8em;color:#8a8272;text-align:right;}
+
+  #vignette{position:fixed;inset:0;pointer-events:none;z-index:9;
+    box-shadow:inset 0 0 160px 40px rgba(0,0,0,0.55);}
+  body.critical #vignette{
+    box-shadow:inset 0 0 220px 60px rgba(120,10,10,0.55);
+    animation:pulse 1s infinite;
+  }
+  @keyframes pulse{0%{opacity:0.6;}50%{opacity:1;}100%{opacity:0.6;}}
+</style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="vignette"></div>
+
+  <div id="hud" class="hidden">
+    <div id="stats">
+      <div class="stat">
+        <div class="label"><span>ЗДОРОВЬЕ</span><span id="healthNum">100</span></div>
+        <div class="barBg"><div id="healthBar" class="barFill fillHealth" style="width:100%"></div></div>
+      </div>
+      <div class="stat">
+        <div class="label"><span>ГОЛОД</span><span id="hungerNum">100</span></div>
+        <div class="barBg"><div id="hungerBar" class="barFill fillHunger" style="width:100%"></div></div>
+      </div>
+      <div class="stat">
+        <div class="label"><span>ФОНАРИК</span><span id="batteryNum">100</span></div>
+        <div class="barBg"><div id="batteryBar" class="barFill fillBattery" style="width:100%"></div></div>
+      </div>
+    </div>
+    <div id="dayLabel">
+      <div class="big" id="dayText">День 1</div>
+      <div id="phaseBarBg"><div id="phaseBarFill"></div></div>
+    </div>
+    <div id="logbox"></div>
+    <div id="controls">
+      <b>WASD</b> движение &nbsp; <b>Мышь</b> взгляд/фонарик<br>
+      <b>F</b> фонарик вкл/выкл &nbsp; <b>ЛКМ / Пробел</b> удар топором
+    </div>
+  </div>
+
+  <div id="startOverlay" class="overlay">
+    <div class="panel">
+      <h1>ВЫЖИВШИЙ</h1>
+      <h2>вертолёт разбился в лесу — впереди три ночи</h2>
+      <p>Вы упали с вертолёта посреди леса. Из снаряжения остались только <span class="tag">топор</span> и <span class="tag">фонарик</span>. Нужно продержаться <span class="tag">3 дня и 3 ночи</span>, охотиться на зверей, чтобы не умереть с голоду, и не попасться твари, которая выходит из темноты.</p>
+      <ul>
+        <li><b>WASD</b> / стрелки — передвижение</li>
+        <li><b>Мышь</b> — направление взгляда и луча фонарика</li>
+        <li><b>F</b> — включить/выключить фонарик (садится батарея)</li>
+        <li><b>ЛКМ</b> или <b>Пробел</b> — ударить топором (звери / тварь)</li>
+      </ul>
+      <p style="color:#a02020;">Ночью держите фонарик наготове, но помните: свет привлекает тварь издалека.</p>
+      <button class="btn" id="btnStart">НАЧАТЬ</button>
+    </div>
+  </div>
+
+  <div id="endOverlay" class="overlay hidden">
+    <div class="panel">
+      <h1 id="endTitle">...</h1>
+      <p id="endText" style="text-align:center;"></p>
+      <button class="btn" id="btnRestart">ЗАНОВО</button>
+    </div>
+  </div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================= CONFIG ================= */
+const CFG = {
+  WORLD_W: 3200, WORLD_H: 3200,
+  TREE_COUNT: 230, ANIMAL_COUNT: 16,
+  PLAYER_SPEED: 220, PLAYER_R: 16,
+  OBST_PAD: 4,
+  DAY_DUR: 75, NIGHT_DUR: 65, TRANSITION: 8, TOTAL_DAYS: 3,
+  HUNGER_DRAIN: 100/340,
+  STARVE_DMG: 3.2,
+  REGEN_RATE: 1.6, REGEN_HUNGER_MIN: 35, REGEN_SAFE_TIME: 4,
+  FLASH_DRAIN: 100/55, FLASH_RECHARGE: 100/140,
+  AMBIENT_R: 85, FLASH_RANGE: 520, FLASH_HALF_ANGLE: 0.5,
+  MONSTER_BASE_SPEED: 190, MONSTER_BASE_DETECT: 420, MONSTER_FLASH_BONUS: 260,
+  MONSTER_TOUCH: 28, MONSTER_DMG: 22,
+  ATTACK_RANGE: 62, ATTACK_COOLDOWN: 0.5,
+  ANIMAL_EAT_HUNGER: 34
+};
+
+/* ================= UTIL ================= */
+function rand(a,b){ return a + Math.random()*(b-a); }
+function dist(x1,y1,x2,y2){ return Math.hypot(x2-x1,y2-y1); }
+function clamp(v,a,b){ return Math.min(b,Math.max(a,v)); }
+function normAngle(a){ while(a>Math.PI)a-=Math.PI*2; while(a<-Math.PI)a+=Math.PI*2; return a; }
+function smoothstep(e0,e1,x){ x=clamp((x-e0)/(e1-e0),0,1); return x*x*(3-2*x); }
+
+/* ================= CANVAS ================= */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const fogCanvas = document.createElement('canvas');
+const fogCtx = fogCanvas.getContext('2d');
+function resize(){
+  canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+  fogCanvas.width = window.innerWidth; fogCanvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ================= STATE ================= */
+let GAME_STATE = 'menu'; // menu | playing | gameover | victory
+let elapsed = 0, dayIndex = 0, isNight = false, nightFactor = 0, nightsSurvived = 0;
+let deathReason = '';
+let lowHealthWarned = false, lowHungerWarned = false;
+
+const player = {
+  x:0,y:0,angle:0,health:100,hunger:100,battery:100,
+  flashOn:false, atkCd:0, swingT:0, lastDamage:-999, moving:false
+};
+const camera = {x:0,y:0};
+const camEff = {x:0,y:0};
+const shakeState = {t:0, mag:0};
+const shakeOffset = {x:0,y:0};
+const mouse = {x:0,y:0};
+const keys = {};
+
+let trees = [];
+let obstacles = [];
+let animals = [];
+let logMessages = [];
+const heliPos = {x: CFG.WORLD_W/2, y: CFG.WORLD_H/2};
+
+const monster = {
+  x:0,y:0, active:false, state:'wander', speed:CFG.MONSTER_BASE_SPEED,
+  detect:CFG.MONSTER_BASE_DETECT, wanderT:0, dir:0, fleeT:0
+};
+
+/* ================= WORLD GEN ================= */
+function generateTrees(){
+  trees = [];
+  let attempts = 0;
+  while(trees.length < CFG.TREE_COUNT && attempts < CFG.TREE_COUNT*6){
+    attempts++;
+    const x = rand(70, CFG.WORLD_W-70);
+    const y = rand(70, CFG.WORLD_H-70);
+    if(dist(x,y,heliPos.x,heliPos.y) < 260) continue;
+    trees.push({x,y, trunkR: 9+rand(0,4), canR: 26+rand(0,16), tone: Math.random()});
+  }
+  obstacles = trees.concat([{x:heliPos.x, y:heliPos.y, trunkR:78}]);
+}
+
+function generateAnimals(){
+  animals = [];
+  for(let i=0;i<CFG.ANIMAL_COUNT;i++){
+    let x,y;
+    do{ x = rand(60, CFG.WORLD_W-60); y = rand(60, CFG.WORLD_H-60); }
+    while(dist(x,y,heliPos.x,heliPos.y) < 180);
+    animals.push({x,y, alive:true, respawnT:0, wanderT:rand(0,3), dir:rand(0,Math.PI*2)});
+  }
+}
+
+/* ================= COLLISION ================= */
+function pushOutOfCircle(e, cx, cy, minDist){
+  const dx=e.x-cx, dy=e.y-cy;
+  const d = Math.hypot(dx,dy) || 0.001;
+  if(d < minDist){
+    const overlap = minDist - d;
+    e.x += dx/d*overlap; e.y += dy/d*overlap;
+  }
+}
+function applyObstacleCollisions(entity, r){
+  for(const o of obstacles){
+    const minDist = r + o.trunkR + CFG.OBST_PAD;
+    if(dist(entity.x, entity.y, o.x, o.y) < minDist){
+      pushOutOfCircle(entity, o.x, o.y, minDist);
+    }
+  }
+}
+function clampWorld(e, r){
+  e.x = clamp(e.x, r, CFG.WORLD_W-r);
+  e.y = clamp(e.y, r, CFG.WORLD_H-r);
+}
+
+/* ================= LOG ================= */
+const logbox = document.getElementById('logbox');
+function addLog(msg){
+  const div = document.createElement('div');
+  div.className = 'logline';
+  div.textContent = msg;
+  logbox.appendChild(div);
+  while(logbox.children.length > 5){ logbox.removeChild(logbox.firstChild); }
+  setTimeout(()=>{ div.classList.add('fade'); setTimeout(()=>{ if(div.parentNode) div.parentNode.removeChild(div); }, 1500); }, 5000);
+}
+
+/* ================= AUDIO ================= */
+let audioCtx = null;
+function ensureAudio(){
+  if(!audioCtx){
+    try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ audioCtx = null; }
+  }
+  if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playTone(freq, dur, type, vol){
+  if(!audioCtx) return;
+  type = type || 'sine'; vol = vol===undefined ? 0.15 : vol;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type; o.frequency.value = freq;
+  o.connect(g); g.connect(audioCtx.destination);
+  const now = audioCtx.currentTime;
+  g.gain.setValueAtTime(vol, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now+dur);
+  o.start(now); o.stop(now+dur+0.02);
+}
+function playNoise(dur, filterType, freq, vol){
+  if(!audioCtx) return;
+  vol = vol===undefined ? 0.2 : vol;
+  const bufferSize = Math.max(1, Math.floor(audioCtx.sampleRate*dur));
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for(let i=0;i<bufferSize;i++) data[i] = Math.random()*2-1;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = filterType; filter.frequency.value = freq;
+  const gain = audioCtx.createGain();
+  const now = audioCtx.currentTime;
+  gain.gain.setValueAtTime(vol, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now+dur);
+  noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+  noise.start(now); noise.stop(now+dur+0.02);
+}
+function playSwing(){ playTone(220,0.12,'square',0.08); }
+function playClick(){ playTone(700,0.05,'square',0.05); }
+function playEat(){ playTone(520,0.09,'sine',0.1); }
+function playGrowlHit(){ playNoise(0.3,'lowpass',400,0.25); }
+function playAmbientGrowl(){ playNoise(0.9,'lowpass',220,0.22); }
+function playScream(){ playNoise(0.5,'bandpass',900,0.22); }
+
+let heartbeatAcc = 0;
+function updateHeartbeat(dt){
+  if(GAME_STATE !== 'playing') return;
+  const distM = monster.active ? dist(player.x,player.y,monster.x,monster.y) : 9999;
+  const threat = Math.max(
+    player.health < 40 ? (40-player.health)/40 : 0,
+    (monster.active && distM < 500) ? (500-distM)/500 : 0
+  );
+  if(threat <= 0.04) return;
+  const interval = clamp(1.15 - threat*0.85, 0.32, 1.15);
+  heartbeatAcc += dt;
+  if(heartbeatAcc >= interval){
+    heartbeatAcc = 0;
+    playTone(55, 0.12, 'sine', 0.12 + threat*0.18);
+  }
+}
+
+/* ================= INPUT ================= */
+window.addEventListener('keydown', (e)=>{
+  keys[e.code] = true;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+  if(e.code === 'KeyF') toggleFlash();
+  if(e.code === 'Space') tryAttack();
+});
+window.addEventListener('keyup', (e)=>{ keys[e.code] = false; });
+canvas.addEventListener('mousemove', (e)=>{
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - rect.left; mouse.y = e.clientY - rect.top;
+});
+canvas.addEventListener('mousedown', ()=>{ tryAttack(); });
+canvas.addEventListener('contextmenu', (e)=> e.preventDefault());
+
+function toggleFlash(){
+  if(GAME_STATE !== 'playing') return;
+  if(!player.flashOn && player.battery <= 1){ addLog('Батарея фонарика разряжена.'); return; }
+  player.flashOn = !player.flashOn;
+  playClick();
+}
+
+function tryAttack(){
+  if(GAME_STATE !== 'playing') return;
+  if(player.atkCd > 0) return;
+  player.atkCd = CFG.ATTACK_COOLDOWN;
+  player.swingT = 0.22;
+  playSwing();
+
+  if(monster.active && monster.state !== 'flee'){
+    const d = dist(player.x, player.y, monster.x, monster.y);
+    if(d < CFG.ATTACK_RANGE + 18){
+      monster.state = 'flee';
+      monster.fleeT = 6 + dayIndex*1.2;
+      const ang = Math.atan2(monster.y-player.y, monster.x-player.x);
+      monster.x += Math.cos(ang)*150; monster.y += Math.sin(ang)*150;
+      clampWorld(monster, 20);
+      addLog('Удар топором отбросил тварь во тьму!');
+      shake(0.4, 10);
+      playGrowlHit();
+      return;
+    }
+  }
+  for(const a of animals){
+    if(!a.alive) continue;
+    if(dist(player.x,player.y,a.x,a.y) < CFG.ATTACK_RANGE){
+      a.alive = false; a.respawnT = rand(25,45);
+      player.hunger = clamp(player.hunger + CFG.ANIMAL_EAT_HUNGER, 0, 100);
+      addLog('Добыча! Голод восполнен на ' + CFG.ANIMAL_EAT_HUNGER + '.');
+      playEat();
+      return;
+    }
+  }
+}
+
+/* ================= SHAKE ================= */
+function shake(dur, mag){ shakeState.t = Math.max(shakeState.t, dur); shakeState.mag = Math.max(shakeState.mag, mag); }
+function updateShake(dt){
+  if(shakeState.t > 0){
+    shakeState.t -= dt;
+    shakeOffset.x = rand(-1,1)*shakeState.mag;
+    shakeOffset.y = rand(-1,1)*shakeState.mag;
+  } else { shakeOffset.x = 0; shakeOffset.y = 0; }
+}
+
+/* ================= UPDATE ================= */
+function updateInput(dt){
+  let mx=0,my=0;
+  if(keys['KeyW']||keys['ArrowUp']) my -= 1;
+  if(keys['KeyS']||keys['ArrowDown']) my += 1;
+  if(keys['KeyA']||keys['ArrowLeft']) mx -= 1;
+  if(keys['KeyD']||keys['ArrowRight']) mx += 1;
+  if(mx||my){
+    const len = Math.hypot(mx,my);
+    mx/=len; my/=len;
+    player.x += mx*CFG.PLAYER_SPEED*dt;
+    player.y += my*CFG.PLAYER_SPEED*dt;
+    player.moving = true;
+  } else player.moving = false;
+
+  applyObstacleCollisions(player, CFG.PLAYER_R);
+  clampWorld(player, CFG.PLAYER_R);
+
+  const worldMouseX = mouse.x + camEff.x, worldMouseY = mouse.y + camEff.y;
+  player.angle = Math.atan2(worldMouseY - player.y, worldMouseX - player.x);
+}
+
+function onNightStart(){
+  monster.active = true;
+  const ang = rand(0, Math.PI*2);
+  let sx = player.x + Math.cos(ang)*rand(900,1300);
+  let sy = player.y + Math.sin(ang)*rand(900,1300);
+  monster.x = clamp(sx, 40, CFG.WORLD_W-40);
+  monster.y = clamp(sy, 40, CFG.WORLD_H-40);
+  monster.state = 'wander'; monster.wanderT = 0;
+  monster.speed = CFG.MONSTER_BASE_SPEED + dayIndex*10;
+  monster.detect = CFG.MONSTER_BASE_DETECT + dayIndex*45;
+  addLog('Солнце село. Начинается ночь ' + (dayIndex+1) + '...');
+  playAmbientGrowl();
+}
+function onDayStart(){
+  monster.active = false;
+  nightsSurvived++;
+  addLog('Рассвет. Ты пережил ночь ' + nightsSurvived + '!');
+  lowHealthWarned = false;
+}
+
+function updateTime(dt){
+  elapsed += dt;
+  const cycle = CFG.DAY_DUR + CFG.NIGHT_DUR;
+  const newDayIndex = Math.floor(elapsed / cycle);
+  if(newDayIndex >= CFG.TOTAL_DAYS){ winGame(); return; }
+
+  const t = elapsed - newDayIndex*cycle;
+  const nightStart = CFG.DAY_DUR;
+  const wasNight = isNight;
+  dayIndex = newDayIndex;
+  isNight = t >= nightStart;
+
+  if(t < nightStart - CFG.TRANSITION) nightFactor = 0;
+  else if(t < nightStart) nightFactor = smoothstep(nightStart-CFG.TRANSITION, nightStart, t);
+  else if(t < cycle - CFG.TRANSITION) nightFactor = 1;
+  else nightFactor = 1 - smoothstep(cycle-CFG.TRANSITION, cycle, t);
+
+  if(isNight && !wasNight) onNightStart();
+  if(!isNight && wasNight) onDayStart();
+}
+
+function updateStats(dt){
+  player.hunger = clamp(player.hunger - CFG.HUNGER_DRAIN*dt, 0, 100);
+  if(player.hunger <= 0){
+    player.health = clamp(player.health - CFG.STARVE_DMG*dt, 0, 100);
+  } else if(player.hunger > CFG.REGEN_HUNGER_MIN && (elapsed - player.lastDamage) > CFG.REGEN_SAFE_TIME){
+    player.health = clamp(player.health + CFG.REGEN_RATE*dt, 0, 100);
+  }
+
+  if(player.flashOn){
+    player.battery = clamp(player.battery - CFG.FLASH_DRAIN*dt, 0, 100);
+    if(player.battery <= 0){ player.flashOn = false; addLog('Фонарик разрядился!'); }
+  } else {
+    player.battery = clamp(player.battery + CFG.FLASH_RECHARGE*dt, 0, 100);
+  }
+
+  if(player.atkCd > 0) player.atkCd -= dt;
+  if(player.swingT > 0) player.swingT -= dt;
+
+  if(!lowHealthWarned && player.health < 30){ lowHealthWarned = true; addLog('Здоровье на исходе...'); }
+  if(!lowHungerWarned && player.hunger < 20){ lowHungerWarned = true; addLog('Голод мучает тебя. Нужна еда.'); }
+  if(player.hunger > 50) lowHungerWarned = false;
+
+  if(player.health <= 0) loseGame('health');
+}
+
+function updateAnimals(dt){
+  for(const a of animals){
+    if(!a.alive){
+      a.respawnT -= dt;
+      if(a.respawnT <= 0){
+        a.alive = true;
+        a.x = rand(60, CFG.WORLD_W-60); a.y = rand(60, CFG.WORLD_H-60);
+      }
+      continue;
+    }
+    const dp = dist(a.x,a.y,player.x,player.y);
+    if(dp < 160){
+      const ang = Math.atan2(a.y-player.y, a.x-player.x);
+      a.x += Math.cos(ang)*72*dt; a.y += Math.sin(ang)*72*dt;
+    } else {
+      a.wanderT -= dt;
+      if(a.wanderT <= 0){ a.wanderT = rand(1.5,3.5); a.dir = rand(0,Math.PI*2); }
+      a.x += Math.cos(a.dir)*30*dt; a.y += Math.sin(a.dir)*30*dt;
+    }
+    applyObstacleCollisions(a, 10);
+    clampWorld(a, 10);
+  }
+}
+
+function updateMonster(dt){
+  if(!monster.active) return;
+  const d = dist(monster.x, monster.y, player.x, player.y);
+
+  if(monster.state === 'flee'){
+    monster.fleeT -= dt;
+    const ang = Math.atan2(monster.y-player.y, monster.x-player.x);
+    monster.x += Math.cos(ang)*monster.speed*1.15*dt;
+    monster.y += Math.sin(ang)*monster.speed*1.15*dt;
+    if(monster.fleeT <= 0) monster.state = 'wander';
+  } else {
+    const detectR = monster.detect + (player.flashOn ? CFG.MONSTER_FLASH_BONUS : 0);
+    if(d < detectR){
+      if(monster.state !== 'chase') addLog('Ты слышишь треск веток совсем рядом...');
+      monster.state = 'chase';
+    } else if(d > detectR*1.6){
+      monster.state = 'wander';
+    }
+    if(monster.state === 'chase'){
+      const ang = Math.atan2(player.y-monster.y, player.x-monster.x);
+      monster.x += Math.cos(ang)*monster.speed*dt;
+      monster.y += Math.sin(ang)*monster.speed*dt;
+    } else {
+      monster.wanderT -= dt;
+      if(monster.wanderT <= 0){ monster.wanderT = rand(2,4); monster.dir = rand(0,Math.PI*2); }
+      monster.x += Math.cos(monster.dir)*70*dt;
+      monster.y += Math.sin(monster.dir)*70*dt;
+    }
+  }
+  applyObstacleCollisions(monster, 18);
+  clampWorld(monster, 18);
+
+  if(monster.state === 'chase' && d < CFG.MONSTER_TOUCH){
+    player.health = clamp(player.health - CFG.MONSTER_DMG*dt, 0, 100);
+    player.lastDamage = elapsed;
+    shake(0.15, 6);
+    if(Math.random() < 0.015) playScream();
+    if(player.health <= 0) loseGame('monster');
+  }
+}
+
+function updateCamera(){
+  camera.x = clamp(player.x - canvas.width/2, 0, Math.max(0, CFG.WORLD_W - canvas.width));
+  camera.y = clamp(player.y - canvas.height/2, 0, Math.max(0, CFG.WORLD_H - canvas.height));
+  camEff.x = camera.x + shakeOffset.x;
+  camEff.y = camera.y + shakeOffset.y;
+}
+
+/* ================= RENDER ================= */
+let groundPattern = null;
+function createGroundPattern(){
+  const tc = document.createElement('canvas'); tc.width = 256; tc.height = 256;
+  const tctx = tc.getContext('2d');
+  tctx.fillStyle = '#3a4a2e'; tctx.fillRect(0,0,256,256);
+  for(let i=0;i<420;i++){
+    const x = rand(0,256), y = rand(0,256);
+    const shade = rand(-16,16);
+    const g = clamp(74+shade,40,110);
+    tctx.fillStyle = 'rgba('+(g-40)+','+g+','+(g-45)+',0.45)';
+    tctx.beginPath(); tctx.arc(x,y,rand(1,3),0,Math.PI*2); tctx.fill();
+  }
+  for(let i=0;i<40;i++){
+    const x = rand(0,256), y = rand(0,256);
+    tctx.fillStyle = 'rgba(60,45,25,0.3)';
+    tctx.beginPath(); tctx.ellipse(x,y,rand(4,9),rand(3,6),0,0,Math.PI*2); tctx.fill();
+  }
+  return ctx.createPattern(tc, 'repeat');
+}
+
+function drawGround(){
+  ctx.fillStyle = groundPattern;
+  ctx.fillRect(camEff.x-4, camEff.y-4, canvas.width+8, canvas.height+8);
+}
+
+function drawHeli(){
+  const x = heliPos.x, y = heliPos.y;
+  ctx.save();
+  ctx.fillStyle = 'rgba(20,20,20,0.35)';
+  ctx.beginPath(); ctx.ellipse(x, y+10, 100, 55, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.translate(x, y);
+  ctx.rotate(0.25);
+  ctx.fillStyle = '#4a4d4f';
+  ctx.beginPath(); ctx.ellipse(0,0, 70, 30, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#3a3d3f';
+  ctx.fillRect(40, -8, 90, 14);
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(120,-2); ctx.lineTo(175,-46); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(-14,-6, 22, 14, 0, 0, Math.PI*2);
+  ctx.fillStyle = '#5a5d60'; ctx.fill();
+
+  const blink = (Math.sin(elapsed*4) > 0);
+  if(blink){
+    ctx.fillStyle = '#d43a3a';
+    ctx.beginPath(); ctx.arc(60,-10, 4, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawTree(t){
+  ctx.save();
+  ctx.fillStyle = '#4a3421';
+  ctx.fillRect(t.x-5, t.y-10, 10, 20);
+  const g1 = 60 + t.tone*20;
+  ctx.fillStyle = `rgb(${20+t.tone*10},${g1},${20+t.tone*8})`;
+  ctx.beginPath(); ctx.arc(t.x, t.y-18, t.canR, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(t.x-t.canR*0.4, t.y-8, t.canR*0.7, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(t.x+t.canR*0.45, t.y-6, t.canR*0.65, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawAnimal(a){
+  ctx.save();
+  ctx.fillStyle = '#8a6a45';
+  ctx.beginPath(); ctx.ellipse(a.x, a.y, 11, 7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(a.x-9, a.y-4, 4, 3, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#6a4c30';
+  ctx.beginPath(); ctx.ellipse(a.x-11, a.y-11, 2.5, 5, -0.3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(a.x-6, a.y-12, 2.5, 5, 0.3, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawMonster(){
+  ctx.save();
+  const bob = Math.sin(elapsed*8)*2;
+  ctx.translate(monster.x, monster.y + bob);
+  const ang = Math.atan2(player.y - monster.y, player.x - monster.x);
+
+  ctx.fillStyle = 'rgba(180,20,20,0.25)';
+  ctx.shadowColor = '#900'; ctx.shadowBlur = 18;
+  ctx.beginPath(); ctx.ellipse(0,10,26,12,0,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#0d0906';
+  ctx.beginPath();
+  ctx.ellipse(0, -10, 15, 30, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = '#0d0906'; ctx.lineWidth = 6; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-12,-20); ctx.lineTo(-26,0+Math.sin(elapsed*10)*6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(12,-20); ctx.lineTo(26,0-Math.sin(elapsed*10)*6); ctx.stroke();
+
+  ctx.beginPath(); ctx.arc(0,-38,13,0,Math.PI*2); ctx.fill();
+
+  const ex = Math.cos(ang)*6, ey = -38+Math.sin(ang)*3;
+  ctx.shadowColor = '#ff2a2a'; ctx.shadowBlur = 12;
+  ctx.fillStyle = '#ff3a3a';
+  ctx.beginPath(); ctx.arc(ex-4, ey, 2.4, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex+4, ey, 2.4, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawPlayer(){
+  ctx.save();
+  ctx.translate(player.x, player.y);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.ellipse(0,10,14,6,0,0,Math.PI*2); ctx.fill();
+
+  ctx.rotate(player.angle);
+  ctx.fillStyle = '#3a4a5a';
+  ctx.beginPath(); ctx.arc(0,0,CFG.PLAYER_R,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#d8c8a8';
+  ctx.beginPath(); ctx.arc(6,0,7,0,Math.PI*2); ctx.fill();
+
+  if(player.swingT > 0){
+    ctx.strokeStyle = '#c9c9c9'; ctx.lineWidth = 4; ctx.lineCap='round';
+    const sw = (0.22 - player.swingT) / 0.22;
+    const a0 = -0.9 + sw*1.8;
+    ctx.beginPath();
+    ctx.moveTo(8,4);
+    ctx.lineTo(8+Math.cos(a0)*30, 4+Math.sin(a0)*30);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = '#7a6a4a'; ctx.lineWidth = 4; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(4,10); ctx.lineTo(20,20); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawFog(){
+  fogCtx.clearRect(0,0,fogCanvas.width, fogCanvas.height);
+  const nightAlpha = 0.08 + nightFactor*0.82;
+  fogCtx.fillStyle = 'rgba(4,4,8,' + nightAlpha + ')';
+  fogCtx.fillRect(0,0,fogCanvas.width, fogCanvas.height);
+
+  const px = player.x - camEff.x, py = player.y - camEff.y;
+
+  fogCtx.globalCompositeOperation = 'destination-out';
+
+  const ambR = CFG.AMBIENT_R;
+  const g1 = fogCtx.createRadialGradient(px,py,0, px,py, ambR);
+  g1.addColorStop(0, 'rgba(0,0,0,0.9)');
+  g1.addColorStop(1, 'rgba(0,0,0,0)');
+  fogCtx.fillStyle = g1;
+  fogCtx.beginPath(); fogCtx.arc(px,py,ambR,0,Math.PI*2); fogCtx.fill();
+
+  if(player.flashOn && player.battery > 0){
+    const range = CFG.FLASH_RANGE * (0.55 + 0.45*(player.battery/100));
+    const half = CFG.FLASH_HALF_ANGLE;
+    const ang = player.angle;
+    const g2 = fogCtx.createRadialGradient(px,py,0, px,py, range);
+    g2.addColorStop(0, 'rgba(0,0,0,0.95)');
+    g2.addColorStop(0.7, 'rgba(0,0,0,0.6)');
+    g2.addColorStop(1, 'rgba(0,0,0,0)');
+    fogCtx.fillStyle = g2;
+    fogCtx.beginPath();
+    fogCtx.moveTo(px,py);
+    fogCtx.arc(px,py,range, ang-half, ang+half);
+    fogCtx.closePath();
+    fogCtx.fill();
+  }
+
+  fogCtx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(fogCanvas, 0, 0);
+}
+
+function render(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.save();
+  ctx.translate(-camEff.x, -camEff.y);
+
+  drawGround();
+
+  const list = [];
+  list.push({y: heliPos.y, draw: drawHeli});
+  for(const t of trees) list.push({y: t.y + t.canR, draw: ()=>drawTree(t)});
+  for(const a of animals) if(a.alive) list.push({y: a.y, draw: ()=>drawAnimal(a)});
+  if(monster.active) list.push({y: monster.y, draw: drawMonster});
+  list.push({y: player.y, draw: drawPlayer});
+  list.sort((p,q)=>p.y-q.y);
+  for(const it of list) it.draw();
+
+  ctx.restore();
+  drawFog();
+}
+
+/* ================= HUD ================= */
+const healthBar = document.getElementById('healthBar');
+const hungerBar = document.getElementById('hungerBar');
+const batteryBar = document.getElementById('batteryBar');
+const healthNum = document.getElementById('healthNum');
+const hungerNum = document.getElementById('hungerNum');
+const batteryNum = document.getElementById('batteryNum');
+const dayText = document.getElementById('dayText');
+const phaseBarFill = document.getElementById('phaseBarFill');
+
+function updateHUD(){
+  healthBar.style.width = player.health + '%';
+  hungerBar.style.width = player.hunger + '%';
+  batteryBar.style.width = player.battery + '%';
+  healthNum.textContent = Math.round(player.health);
+  hungerNum.textContent = Math.round(player.hunger);
+  batteryNum.textContent = Math.round(player.battery);
+
+  dayText.textContent = (isNight ? 'Ночь ' : 'День ') + (dayIndex+1) + ' из ' + CFG.TOTAL_DAYS;
+
+  const cycle = CFG.DAY_DUR + CFG.NIGHT_DUR;
+  const t = elapsed - dayIndex*cycle;
+  let frac;
+  if(isNight){ frac = (t - CFG.DAY_DUR) / CFG.NIGHT_DUR; }
+  else { frac = t / CFG.DAY_DUR; }
+  phaseBarFill.style.width = clamp(frac,0,1)*100 + '%';
+
+  document.body.classList.toggle('critical', player.health < 30);
+}
+
+/* ================= GAME FLOW ================= */
+function winGame(){
+  GAME_STATE = 'victory';
+  document.getElementById('endTitle').textContent = 'ВЫ ВЫЖИЛИ';
+  document.getElementById('endTitle').style.color = '#a8d888';
+  document.getElementById('endText').textContent = 'Три ночи позади. Взошло солнце четвёртого дня, и тварь больше не вернётся. Спасатели уже близко.';
+  document.getElementById('endOverlay').classList.remove('hidden');
+  document.getElementById('hud').classList.add('hidden');
+}
+function loseGame(reason){
+  if(GAME_STATE !== 'playing') return;
+  GAME_STATE = 'gameover';
+  deathReason = reason;
+  document.getElementById('endTitle').textContent = 'ВЫ ПОГИБЛИ';
+  document.getElementById('endTitle').style.color = '';
+  document.getElementById('endText').textContent = reason === 'monster'
+    ? 'Тварь настигла тебя во тьме леса, на ночи ' + (dayIndex+1) + '.'
+    : 'Голод и раны взяли своё. Ты не продержался до утра.';
+  document.getElementById('endOverlay').classList.remove('hidden');
+  document.getElementById('hud').classList.add('hidden');
+}
+
+function resetState(){
+  elapsed = 0; dayIndex = 0; isNight = false; nightFactor = 0; nightsSurvived = 0;
+  lowHealthWarned = false; lowHungerWarned = false;
+  player.x = heliPos.x + 90; player.y = heliPos.y + 90;
+  player.health = 100; player.hunger = 100; player.battery = 100;
+  player.flashOn = false; player.angle = 0; player.atkCd = 0; player.swingT = 0;
+  player.lastDamage = -999;
+  monster.active = false; monster.state = 'wander';
+  generateTrees();
+  generateAnimals();
+  logbox.innerHTML = '';
+  shakeState.t = 0; shakeOffset.x = 0; shakeOffset.y = 0;
+  addLog('Вертолёт разбился. Нужно продержаться 3 дня и 3 ночи.');
+}
+
+function startGame(){
+  ensureAudio();
+  resetState();
+  GAME_STATE = 'playing';
+  document.getElementById('startOverlay').classList.add('hidden');
+  document.getElementById('endOverlay').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+}
+
+document.getElementById('btnStart').addEventListener('click', startGame);
+document.getElementById('btnRestart').addEventListener('click', startGame);
+
+/* ================= MAIN LOOP ================= */
+groundPattern = createGroundPattern();
+let lastTime = performance.now();
+function loop(now){
+  let dt = (now - lastTime) / 1000;
+  lastTime = now;
+  dt = Math.min(dt, 0.05);
+  requestAnimationFrame(loop);
+
+  if(GAME_STATE === 'playing'){
+    updateInput(dt);
+    updateTime(dt);
+    if(GAME_STATE !== 'playing') return;
+    updateStats(dt);
+    updateAnimals(dt);
+    updateMonster(dt);
+    updateShake(dt);
+    updateCamera(dt);
+    updateHeartbeat(dt);
+    render();
+    updateHUD();
+  }
+}
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
